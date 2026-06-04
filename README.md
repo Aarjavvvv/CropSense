@@ -2,7 +2,7 @@
 
 > Upload a leaf photo. Get an instant diagnosis — crop type, disease name, confidence score, and a Grad-CAM heatmap showing *where* the model looked.
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python)
+![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?logo=pytorch)
 ![Gradio](https://img.shields.io/badge/UI-Gradio-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -13,49 +13,54 @@
 
 | Feature | Description |
 |---|---|
-| 🧠 **EfficientNetB0** | Fine-tuned on PlantVillage — 2-phase transfer learning |
+| 🧠 **EfficientNetB0** | 2-phase transfer learning on PlantVillage |
 | 🌾 **38 Disease Classes** | 14 crop species · 17 disease types + healthy variants |
-| 🔍 **Grad-CAM** | Visual explainability — highlights the diseased leaf region |
+| 🔍 **Grad-CAM** | Highlights the exact diseased region on the leaf |
 | 📊 **Top-5 Predictions** | Confidence scores for top 5 diagnoses |
-| 🎛️ **Gradio Web UI** | Clean editorial interface, launch with one command |
-| ⚡ **Fast Inference** | ~200ms per image on CPU after model load |
+| 🎛️ **Gradio Web UI** | Clean editorial interface, one command launch |
+| ⚡ **99.13% Val Accuracy** | Trained on 54,305 images across 38 classes |
 
 ---
 
 ## 🖥️ Interface
 
-> Upload any leaf image and get a full diagnosis in under a second.
-
-![CropSense UI](assets/ui_empty.png)
+![CropSense UI](assets/sample_images.png)
 
 ---
 
-## 📸 Demo
+## 📊 Results
 
-### Example 1 — Tomato Early Blight
-
-| Input | Grad-CAM Heatmap |
+| Metric | Value |
 |---|---|
-| ![Input](assets/demo1_input.jpg) | ![GradCAM](assets/demo1_gradcam.png) |
-
-**Diagnosis:**
-- **Crop:** Tomato
-- **Status:** ⚠️ Disease Detected
-- **Condition:** Early Blight
-- **Confidence:** 97.3%
+| Phase 1 Best Val Accuracy | 97.55% |
+| Phase 2 Best Val Accuracy | **99.13%** |
+| Grad-CAM Confidence (Tomato Early Blight) | 95.0% |
+| Total Training Time | ~27 mins (RTX 4060) |
+| Dataset | 54,305 images · 38 classes |
 
 ---
 
-### Example 2 — Healthy Pepper Leaf
+## 📈 Training Curves
 
-| Input | Output |
-|---|---|
-| ![Input](assets/demo2_input.jpg) | ![Output](assets/demo2_output.png) |
+![Training Curves](assets/training_curves.png)
 
-**Diagnosis:**
-- **Crop:** Pepper
-- **Status:** ✅ Healthy
-- **Confidence:** 94.1%
+The dashed line marks the transition from Phase 1 (frozen base, lr=1e-3) to Phase 2 (full fine-tune, lr=1e-5). Validation accuracy improves from **95.01% → 99.13%** across 10 epochs.
+
+---
+
+## 🔍 Grad-CAM Explainability
+
+![Grad-CAM](assets/gradcam_example.png)
+
+Grad-CAM highlights the exact lesion regions the model focused on — **95.0% confidence** on Tomato Early Blight. The heatmap confirms the model is learning disease features, not background artifacts.
+
+---
+
+## 📉 Confusion Matrix
+
+![Confusion Matrix](assets/confusion_matrix.png)
+
+Strong diagonal across all 38 classes — minimal off-diagonal misclassifications, even between visually similar diseases.
 
 ---
 
@@ -73,25 +78,15 @@ pip install -r requirements.txt
 ```
 
 ### 3. Download Dataset
-Download PlantVillage from Kaggle:
 ```
 https://www.kaggle.com/datasets/abdallahalidev/plantvillage-dataset
 ```
-Extract so the structure is:
-```
-data/
-└── plantvillage/
-    ├── Apple__Apple_scab/
-    ├── Tomato__Early_blight/
-    ├── Potato__healthy/
-    └── ...
-```
+Extract so structure is: `data/plantvillage/<class_name>/<image>.jpg`
 
 ### 4. Train
 ```bash
 jupyter notebook CropSense_Train.ipynb
 ```
-Runs 2-phase training: head-only (5 epochs) → full fine-tune (5 epochs).
 
 ### 5. Run Web App
 ```bash
@@ -101,57 +96,28 @@ Opens at **http://localhost:7860**
 
 ---
 
-## 🏗️ Architecture & Training Strategy
+## 🏗️ Architecture & Training
 
 ```
 Input Image (224×224)
         │
         ▼
 ┌───────────────────────┐
-│  EfficientNetB0       │  ← Pretrained on ImageNet
-│  Feature Extractor    │     (5.3M parameters)
+│  EfficientNetB0       │  ← Pretrained ImageNet (5.3M params)
+│  Feature Extractor    │
 └──────────┬────────────┘
            │
            ▼
 ┌───────────────────────┐
-│  Custom Classifier    │  ← Dropout → Linear(512) → ReLU
-│  Head                 │     → Dropout → Linear(38)
+│  Custom Head          │  Dropout → Linear(512) → ReLU
+│                       │  → Dropout → Linear(38)
 └──────────┬────────────┘
-           │
            ▼
     38-class Softmax
 
-Training:
-  Phase 1 — Freeze base, train head only (lr=1e-3, 5 epochs)
-  Phase 2 — Unfreeze all, fine-tune end-to-end (lr=1e-5, 5 epochs)
-  Optimizer: AdamW + CosineAnnealingLR
-  Augmentation: flip, rotate, color jitter
-```
-
----
-
-## 📊 Results
-
-| Metric | Value |
-|---|---|
-| Test Accuracy | ~95%+ |
-| Macro F1 Score | ~94% |
-| Inference Speed | ~200ms / image (CPU) |
-| Model Size | ~20MB |
-
-*Results vary slightly based on random seed and hardware.*
-
----
-
-## 🔍 Grad-CAM Explainability
-
-Grad-CAM (Gradient-weighted Class Activation Mapping) generates a heatmap showing which pixels the model used to make its prediction — critical for trust in medical/agricultural AI.
-
-```python
-from pytorch_grad_cam import GradCAM
-
-target_layer = [model.features[-1]]
-cam = GradCAM(model=model, target_layers=target_layer)
+Phase 1: Freeze base → train head only (lr=1e-3, 5 epochs) → 97.55% val acc
+Phase 2: Unfreeze all → fine-tune end-to-end (lr=1e-5, 5 epochs) → 99.13% val acc
+Optimizer: AdamW + CosineAnnealingLR
 ```
 
 ---
@@ -161,11 +127,10 @@ cam = GradCAM(model=model, target_layers=target_layer)
 ```
 CropSense/
 ├── app.py                  # Gradio web application
-├── CropSense_Train.ipynb   # Full training + evaluation notebook
+├── CropSense_Train.ipynb   # Training + evaluation + Grad-CAM notebook
 ├── requirements.txt
 ├── class_names.json        # Generated after training
-├── cropsense_efficientnet.pth  # Saved model weights
-├── assets/                 # Screenshots and demo images
+├── assets/                 # Training curves, confusion matrix, Grad-CAM
 └── README.md
 ```
 
@@ -173,11 +138,7 @@ CropSense/
 
 ## 🔧 Tech Stack
 
-- `torch` + `torchvision` — Model training and inference
-- `grad-cam` — Explainability heatmaps
-- `gradio` — Web UI
-- `scikit-learn` — Evaluation metrics
-- `matplotlib` + `seaborn` — Training curves, confusion matrix
+`torch` · `torchvision` · `grad-cam` · `gradio` · `scikit-learn` · `matplotlib` · `seaborn`
 
 ---
 
