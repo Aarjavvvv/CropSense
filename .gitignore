@@ -1,0 +1,5 @@
+cropsense_efficientnet.pth
+data/
+__pycache__/
+*.pyc
+.env
